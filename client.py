@@ -1,8 +1,11 @@
 import asyncio
 import threading
 import tkinter as tk
-from tkinter import scrolledtext, ttk
+from tkinter import scrolledtext, ttk, filedialog
 from datetime import datetime
+from PIL import Image, ImageTk
+import base64
+import io
 
 # Глобальные переменные для хранения объектов reader и writer
 reader = None
@@ -10,10 +13,17 @@ writer = None
 
 async def receive_messages(reader, text_widget):
     while True:
-        data = await reader.read(100)
+        data = await reader.read(100000)  # Увеличиваем размер буфера для приема больших сообщений
         message = data.decode()
-        display_message(text_widget, message)
-        print(f"Получено сообщение: {message}")
+        if message.startswith("IMAGE:"):
+            # Если сообщение начинается с "IMAGE:", это изображение
+            image_data = message[6:]
+            display_image(text_widget, image_data)
+            print("Получено изображение")
+        else:
+            # Если это текст
+            display_message(text_widget, message)
+            print(f"Получено сообщение: {message}")
 
 async def send_messages(writer, message):
     while True:
@@ -33,11 +43,29 @@ def send_message():
     entry_widget.delete(0, tk.END)
     writer.write(message.encode())
 
+def send_image():
+    global writer
+
+    file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.gif;*.bmp")])
+    if file_path:
+        with open(file_path, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode()
+            writer.write(f"IMAGE:{encoded_string}".encode())
+
 def display_message(text_widget, message):
     current_time = datetime.now().strftime("%H:%M")
     message_with_time = f"[{current_time}] {message}\n"
     text_widget.insert(tk.END, message_with_time)
     text_widget.see(tk.END)
+
+def display_image(text_widget, image_data):
+    image = Image.open(io.BytesIO(base64.b64decode(image_data)))
+    image.thumbnail((200, 200))  # Уменьшаем изображение для отображения в чате
+    photo = ImageTk.PhotoImage(image)
+    text_widget.image_create(tk.END, image=photo)
+    text_widget.insert(tk.END, "\n")
+    text_widget.see(tk.END)
+    text_widget.image = photo  # Сохраняем ссылку на изображение, чтобы оно не было удалено сборщиком мусора
 
 async def connect_to_server(text_widget):
     global reader
@@ -94,6 +122,9 @@ if __name__ == '__main__':
 
     send_button = ttk.Button(input_frame, text="Отправить", command=send_message)
     send_button.pack(side=tk.LEFT)
+
+    send_image_button = ttk.Button(input_frame, text="Отправить изображение", command=send_image)
+    send_image_button.pack(side=tk.LEFT, padx=(10, 0))
 
     asyncio_thread = threading.Thread(target=run_client_loop, args=(text_widget,))
     asyncio_thread.start()

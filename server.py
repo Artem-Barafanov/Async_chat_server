@@ -2,24 +2,37 @@ import asyncio
 import threading
 import tkinter as tk
 from tkinter import scrolledtext, ttk
+import base64
 
 clients = {}
 rooms = {}  # Словарь для хранения комнат
 
 async def handle_client_messages(reader, writer, client_address, connections_widget, messages_widget):
     while True:
-        data = await reader.read(100)
+        data = await reader.read(100000)  # Увеличиваем размер буфера для приема больших сообщений
         if not data:
             break
         message = data.decode()
-        display_message = f"Получено сообщение от {client_address} {clients[writer]['name']}: {message}\n"
-        messages_widget.insert(tk.END, display_message)
-        messages_widget.see(tk.END)
-        message = f" {clients[writer]['name']} - " + message
-        for client in rooms[clients[writer]['room']]:  # Отправляем сообщение только клиентам в той же комнате
-            client.write(message.encode())
-            await client.drain()
-            print("Сообщение отправлено")
+        if message.startswith("IMAGE:"):
+            # Если сообщение начинается с "IMAGE:", это изображение
+            image_data = message[6:]
+            display_message = f"Получено изображение от {client_address} {clients[writer]['name']}\n"
+            messages_widget.insert(tk.END, display_message)
+            messages_widget.see(tk.END)
+            for client in rooms[clients[writer]['room']]:  # Отправляем изображение только клиентам в той же комнате
+                client.write(f"IMAGE:{image_data}".encode())
+                await client.drain()
+                print("Изображение отправлено")
+        else:
+            # Если это текст
+            display_message = f"Получено сообщение от {client_address} {clients[writer]['name']}: {message}\n"
+            messages_widget.insert(tk.END, display_message)
+            messages_widget.see(tk.END)
+            message = f" {clients[writer]['name']} - " + message
+            for client in rooms[clients[writer]['room']]:  # Отправляем сообщение только клиентам в той же комнате
+                client.write(message.encode())
+                await client.drain()
+                print("Сообщение отправлено")
 
 async def handle_new_client(reader, writer, connections_widget, messages_widget):
     client_address = writer.get_extra_info('peername')
